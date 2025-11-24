@@ -14,30 +14,110 @@
         </header>
 
         <div class="files-section" id="filesSection">
-            <div class="files-tabs">
-                <div class="file-tab active" data-tab="files" onclick="switchTab('files')">
-                    <span>Files</span>
+            <!-- Step Progress Indicator -->
+            <div class="step-progress-container">
+                <!-- Segmented Progress Bar - ABOVE step indicators -->
+                <div class="segmented-progress-bar" id="segmentedProgressBar">
+                    <div class="progress-segment" data-step-index="0"></div>
+                    <div class="progress-segment" data-step-index="1"></div>
+                    <div class="progress-segment" data-step-index="2"></div>
+                    <div class="progress-segment" data-step-index="3"></div>
+                    <div class="progress-segment" data-step-index="4"></div>
+                    <div class="progress-segment" data-step-index="5"></div>
+                    <div class="progress-segment" data-step-index="6"></div>
+                    <div class="progress-segment" data-step-index="7"></div>
                 </div>
-                <div class="file-tab" data-tab="fact-matrix" onclick="switchTab('fact-matrix')">
-                    <span>Fact Matrix</span>
-                </div>
-                <div class="file-tab" data-tab="liability-signals" onclick="switchTab('liability-signals')">
-                    <span>Liability Signals</span>
-                </div>
-                <div class="file-tab" data-tab="evidence-completeness" onclick="switchTab('evidence-completeness')">
-                    <span>Evidence Completeness</span>
-                </div>
-                <div class="file-tab" data-tab="liability-recommendation" onclick="switchTab('liability-recommendation')">
-                    <span>Liability % Recommendation</span>
-                </div>
-                <div class="file-tab" data-tab="timeline" onclick="switchTab('timeline')">
-                    <span>Timeline Reconstruction</span>
-                </div>
-                <div class="file-tab" data-tab="claim-rationale" onclick="switchTab('claim-rationale')">
-                    <span>Draft Claim Rationale</span>
-                </div>
-                <div class="file-tab" data-tab="escalation-package" onclick="switchTab('escalation-package')">
-                    <span>Supervisor Escalation</span>
+                
+                <!-- Step Indicators - BELOW progress bar -->
+                <div class="step-indicators">
+                    <div class="step-item completed" data-step="files" onclick="switchTab('files')">
+                        <div class="step-icon">
+                            <!-- Files icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M5.83333 3.33333H11.6667L14.1667 5.83333V16.6667H5.83333V3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M11.6667 3.33333V5.83333H14.1667" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Files</span>
+                    </div>
+                    <div class="step-item" data-step="fact-matrix" onclick="switchTab('fact-matrix')">
+                        <div class="step-icon">
+                            <!-- Fact Matrix / Grid icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M3.33333 3.33333H8.33333V8.33333H3.33333V3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M11.6667 3.33333H16.6667V8.33333H11.6667V3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3.33333 11.6667H8.33333V16.6667H3.33333V11.6667Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M11.6667 11.6667H16.6667V16.6667H11.6667V11.6667Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Fact Matrix</span>
+                    </div>
+                    <div class="step-item" data-step="liability-signals" onclick="switchTab('liability-signals')">
+                        <div class="step-icon">
+                            <!-- Liability Signals / Warning icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 3.33333L3.33333 16.6667H16.6667L10 3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 11.6667V8.33333" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <circle cx="10" cy="13.3333" r="0.833333" fill="currentColor"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Liability Signals</span>
+                    </div>
+                    <div class="step-item" data-step="evidence-completeness" onclick="switchTab('evidence-completeness')">
+                        <div class="step-icon">
+                            <!-- Evidence Completeness / Checklist icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M16.6667 5L7.50004 14.1667L3.33337 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M3.33333 10H7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M7.5 14.1667L16.6667 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Evidence Completeness</span>
+                    </div>
+                    <div class="step-item" data-step="liability-recommendation" onclick="switchTab('liability-recommendation')">
+                        <div class="step-icon">
+                            <!-- Liability % Recommendation / Percentage icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 3.33333C6.31814 3.33333 3.33333 6.31814 3.33333 10C3.33333 13.6819 6.31814 16.6667 10 16.6667C13.6819 16.6667 16.6667 13.6819 16.6667 10C16.6667 6.31814 13.6819 3.33333 10 3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10 6.66667V10L12.5 12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M7.5 7.5H12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M7.5 12.5H12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Liability % Recommendation</span>
+                    </div>
+                    <div class="step-item locked" data-step="timeline" onclick="switchTab('timeline')">
+                        <div class="step-icon">
+                            <!-- Timeline Reconstruction / Clock icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="2"/>
+                                <path d="M10 5V10L13.3333 13.3333" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Timeline Reconstruction</span>
+                    </div>
+                    <div class="step-item locked" data-step="claim-rationale" onclick="switchTab('claim-rationale')">
+                        <div class="step-icon">
+                            <!-- Draft Claim Rationale / Document edit icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M5 5H15V15H5V5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M7.5 7.5H12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M7.5 10H12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M7.5 12.5H10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                <path d="M12.5 7.5L15 10L12.5 12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Draft Claim Rationale</span>
+                    </div>
+                    <div class="step-item locked" data-step="escalation-package" onclick="switchTab('escalation-package')">
+                        <div class="step-icon">
+                            <!-- Supervisor Escalation / Shield icon -->
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                                <path d="M10 3.33333L3.33333 6.66667V10C3.33333 14.1667 6.66667 16.6667 10 17.5C13.3333 16.6667 16.6667 14.1667 16.6667 10V6.66667L10 3.33333Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="step-label">Supervisor Escalation</span>
+                    </div>
                 </div>
             </div>
             
@@ -47,9 +127,11 @@
                     <div class="file-list-container" id="fileListContainer">
                         <div class="file-list-header">
                             <h2>Claim Documents</h2>
-                            <button class="summary-button" id="extractFactsButton" onclick="extractFacts()">
-                                Extract Facts
-                            </button>
+                            <div class="header-actions">
+                                <button class="summary-button" id="extractFactsButton" onclick="extractFacts()">
+                                    Extract Facts & Continue
+                                </button>
+                            </div>
                         </div>
                         <div class="file-list" id="fileList">
                             <!-- File list items will be generated by JavaScript -->
@@ -385,6 +467,16 @@
                             </div>
                         </div>
                     </div>
+                </div>
+                
+                <!-- Navigation Buttons -->
+                <div class="navigation-buttons">
+                    <button class="nav-button prev-button" id="prevButton" onclick="goToPreviousStep()">
+                        Previous
+                    </button>
+                    <button class="nav-button next-button" id="nextButton" onclick="goToNextStep()">
+                        Next
+                    </button>
                 </div>
             </div>
         </div>

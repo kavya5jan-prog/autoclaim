@@ -1,4 +1,5 @@
 import os
+import sys
 import base64
 import json
 import re
@@ -35,6 +36,75 @@ else:
     openai_client = None
     print("Warning: OPENAI_API_KEY not found in environment variables")
 
+# Image processing configuration (memory optimization)
+IMAGE_DPI = int(os.getenv('IMAGE_DPI', '72'))  # Reduced from 150 to 72
+MAX_IMAGE_DIMENSION = int(os.getenv('MAX_IMAGE_DIMENSION', '2048'))  # Max width or height in pixels
+MAX_IMAGE_SIZE_MB = float(os.getenv('MAX_IMAGE_SIZE_MB', '2.0'))  # Max size per image after compression
+MAX_IMAGE_SIZE_BYTES = int(MAX_IMAGE_SIZE_MB * 1024 * 1024)
+MAX_IMAGES_PER_PAGE = int(os.getenv('MAX_IMAGES_PER_PAGE', '5'))  # Max images per PDF page
+MAX_IMAGES_PER_PDF = int(os.getenv('MAX_IMAGES_PER_PDF', '20'))  # Max total images per PDF
+MAX_TOTAL_IMAGES_PER_REQUEST = int(os.getenv('MAX_TOTAL_IMAGES_PER_REQUEST', '50'))  # Max images across all files
+JPEG_QUALITY = int(os.getenv('JPEG_QUALITY', '85'))  # JPEG compression quality (1-100)
+
+
+def optimize_image(pil_image):
+    """
+    Optimize image for memory efficiency: resize if needed, convert to JPEG, compress.
+    Returns (optimized_image_bytes, mime_type) or None if optimization fails.
+    """
+    try:
+        # Convert RGBA to RGB if needed (JPEG doesn't support transparency)
+        if pil_image.mode in ('RGBA', 'LA', 'P'):
+            # Create white background
+            rgb_image = Image.new('RGB', pil_image.size, (255, 255, 255))
+            if pil_image.mode == 'P':
+                pil_image = pil_image.convert('RGBA')
+            rgb_image.paste(pil_image, mask=pil_image.split()[-1] if pil_image.mode in ('RGBA', 'LA') else None)
+            pil_image = rgb_image
+        elif pil_image.mode != 'RGB':
+            pil_image = pil_image.convert('RGB')
+        
+        # Resize if dimensions exceed maximum
+        width, height = pil_image.size
+        if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+            # Calculate new dimensions maintaining aspect ratio
+            ratio = min(MAX_IMAGE_DIMENSION / width, MAX_IMAGE_DIMENSION / height)
+            new_width = int(width * ratio)
+            new_height = int(height * ratio)
+            pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Compress to JPEG with quality setting
+        img_buffer = BytesIO()
+        pil_image.save(img_buffer, format='JPEG', quality=JPEG_QUALITY, optimize=True)
+        img_bytes = img_buffer.getvalue()
+        
+        # Check if image size exceeds limit
+        if len(img_bytes) > MAX_IMAGE_SIZE_BYTES:
+            # Try reducing quality progressively
+            for quality in [75, 65, 55, 45]:
+                img_buffer = BytesIO()
+                pil_image.save(img_buffer, format='JPEG', quality=quality, optimize=True)
+                img_bytes = img_buffer.getvalue()
+                if len(img_bytes) <= MAX_IMAGE_SIZE_BYTES:
+                    break
+            
+            # If still too large, resize further
+            if len(img_bytes) > MAX_IMAGE_SIZE_BYTES:
+                current_width, current_height = pil_image.size
+                scale_factor = (MAX_IMAGE_SIZE_BYTES / len(img_bytes)) ** 0.5
+                new_width = max(100, int(current_width * scale_factor))
+                new_height = max(100, int(current_height * scale_factor))
+                pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                img_buffer = BytesIO()
+                pil_image.save(img_buffer, format='JPEG', quality=JPEG_QUALITY, optimize=True)
+                img_bytes = img_buffer.getvalue()
+        
+        return img_bytes, 'image/jpeg'
+    
+    except Exception as e:
+        print(f"Error optimizing image: {str(e)}")
+        return None, None
+
 
 def extract_pdf_content(pdf_path):
     """
@@ -62,14 +132,23 @@ def extract_pdf_content(pdf_path):
             result['metadata']['subject'] = pdf.metadata.get('Subject', '')
         
         # Extract text and images from each page
+        total_images_extracted = 0
         for page_num, page in enumerate(pdf.pages):
             # Extract text
             text = page.extract_text() or ''
             
-            # Extract images from pdfplumber
+            # Extract images from pdfplumber (with limits)
             images = []
-            if page.images:
+            if page.images and total_images_extracted < MAX_IMAGES_PER_PDF:
                 for img_index, img_obj in enumerate(page.images):
+                    # Limit images per page
+                    if len(images) >= MAX_IMAGES_PER_PAGE:
+                        break
+                    
+                    # Limit total images per PDF
+                    if total_images_extracted >= MAX_IMAGES_PER_PDF:
+                        break
+                    
                     try:
                         # Get image bounding box
                         bbox = (img_obj.get('x0', 0), img_obj.get('top', 0), 
@@ -79,20 +158,36 @@ def extract_pdf_content(pdf_path):
                             
                             # Try to get image as PIL Image using pdfplumber's to_image
                             try:
-                                pil_image = cropped.to_image(resolution=150)
-                                img_buffer = BytesIO()
-                                pil_image.save(img_buffer, format='PNG')
-                                img_bytes = img_buffer.getvalue()
+                                # Use reduced DPI for memory efficiency
+                                pil_image = cropped.to_image(resolution=IMAGE_DPI)
                                 
-                                # Convert to base64
-                                image_base64 = base64.b64encode(img_bytes).decode('utf-8')
-                                images.append({
-                                    'index': img_index,
-                                    'data': f"data:image/png;base64,{image_base64}",
-                                    'ext': 'png'
-                                })
+                                # Optimize image (resize, compress, convert to JPEG)
+                                img_bytes, mime_type = optimize_image(pil_image)
+                                
+                                if img_bytes and mime_type:
+                                    # Convert to base64
+                                    image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                                    images.append({
+                                        'index': img_index,
+                                        'data': f"data:{mime_type};base64,{image_base64}",
+                                        'ext': 'jpg'
+                                    })
+                                    total_images_extracted += 1
+                                    
+                                    # Explicitly delete large objects to free memory
+                                    del pil_image
+                                    del img_bytes
+                                else:
+                                    print(f"Warning: Failed to optimize image {img_index} from page {page_num}")
+                                
+                            except MemoryError as mem_error:
+                                print(f"Memory error extracting image {img_index} from page {page_num}: {mem_error}")
+                                break  # Stop processing images on this page if out of memory
                             except Exception as img_error:
                                 print(f"Error converting image {img_index} from page {page_num} to PIL: {img_error}")
+                    except MemoryError as mem_error:
+                        print(f"Memory error processing image {img_index} from page {page_num}: {mem_error}")
+                        break
                     except Exception as e:
                         print(f"Error extracting image {img_index} from page {page_num}: {e}")
             
@@ -108,53 +203,101 @@ def extract_pdf_content(pdf_path):
                 'height': height
             })
     
-    # Also try to extract images using PyPDF2 as fallback
+    # Also try to extract images using PyPDF2 as fallback (with optimization)
     try:
         with open(pdf_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
             for page_num, page in enumerate(pdf_reader.pages):
+                # Skip if we've already hit the limit
+                if page_num < len(result['pages']):
+                    current_page_images = len(result['pages'][page_num]['images'])
+                    if current_page_images >= MAX_IMAGES_PER_PAGE:
+                        continue
+                
                 try:
                     if '/Resources' in page and '/XObject' in page['/Resources']:
                         xobjects = page['/Resources']['/XObject']
                         if hasattr(xobjects, 'get_object'):
                             xobjects = xobjects.get_object()
                         
-                        img_index_offset = len(result['pages'][page_num]['images'])
                         for obj_name, obj in xobjects.items():
+                            # Check limits
+                            if page_num < len(result['pages']):
+                                if len(result['pages'][page_num]['images']) >= MAX_IMAGES_PER_PAGE:
+                                    break
+                                if total_images_extracted >= MAX_IMAGES_PER_PDF:
+                                    break
+                            
                             if hasattr(obj, 'get') and obj.get('/Subtype') == '/Image':
                                 try:
                                     # Extract image data
                                     data = obj.get_data()
                                     
-                                    # Determine image format
-                                    if '/Filter' in obj:
-                                        filter_type = obj['/Filter']
-                                        if isinstance(filter_type, list):
-                                            filter_type = filter_type[0] if filter_type else ''
-                                        if filter_type == '/DCTDecode':
-                                            ext = 'jpg'
-                                        elif filter_type == '/FlateDecode':
-                                            ext = 'png'
+                                    # Check raw data size before processing
+                                    if len(data) > MAX_IMAGE_SIZE_BYTES * 3:  # Allow 3x before compression
+                                        print(f"Skipping very large image from PyPDF2 on page {page_num} ({len(data)} bytes)")
+                                        continue
+                                    
+                                    # Try to load and optimize the image
+                                    try:
+                                        img_buffer = BytesIO(data)
+                                        pil_image = Image.open(img_buffer)
+                                        img_bytes, mime_type = optimize_image(pil_image)
+                                        
+                                        if img_bytes and mime_type:
+                                            # Convert to base64
+                                            image_base64 = base64.b64encode(img_bytes).decode('utf-8')
+                                            
+                                            # Add to images
+                                            if page_num < len(result['pages']):
+                                                new_index = len(result['pages'][page_num]['images'])
+                                                result['pages'][page_num]['images'].append({
+                                                    'index': new_index,
+                                                    'data': f"data:{mime_type};base64,{image_base64}",
+                                                    'ext': 'jpg'
+                                                })
+                                                total_images_extracted += 1
+                                                
+                                                # Clean up
+                                                del pil_image
+                                                del img_bytes
                                         else:
-                                            ext = 'png'
-                                    else:
-                                        ext = 'png'
+                                            # Fallback: use original data if optimization fails
+                                            image_base64 = base64.b64encode(data).decode('utf-8')
+                                            ext = 'jpg' if '/DCTDecode' in str(obj.get('/Filter', '')) else 'png'
+                                            if page_num < len(result['pages']):
+                                                new_index = len(result['pages'][page_num]['images'])
+                                                result['pages'][page_num]['images'].append({
+                                                    'index': new_index,
+                                                    'data': f"data:image/{ext};base64,{image_base64}",
+                                                    'ext': ext
+                                                })
+                                                total_images_extracted += 1
+                                    except Exception as img_process_error:
+                                        # Fallback: use original data
+                                        image_base64 = base64.b64encode(data).decode('utf-8')
+                                        ext = 'jpg' if '/DCTDecode' in str(obj.get('/Filter', '')) else 'png'
+                                        if page_num < len(result['pages']):
+                                            new_index = len(result['pages'][page_num]['images'])
+                                            result['pages'][page_num]['images'].append({
+                                                'index': new_index,
+                                                'data': f"data:image/{ext};base64,{image_base64}",
+                                                'ext': ext
+                                            })
+                                            total_images_extracted += 1
                                     
-                                    # Convert to base64
-                                    image_base64 = base64.b64encode(data).decode('utf-8')
-                                    
-                                    # Add to images
-                                    if page_num < len(result['pages']):
-                                        new_index = len(result['pages'][page_num]['images'])
-                                        result['pages'][page_num]['images'].append({
-                                            'index': new_index,
-                                            'data': f"data:image/{ext};base64,{image_base64}",
-                                            'ext': ext
-                                        })
+                                except MemoryError as mem_error:
+                                    print(f"Memory error extracting PyPDF2 image from page {page_num}: {mem_error}")
+                                    break
                                 except Exception as e:
                                     print(f"Error extracting image with PyPDF2 from page {page_num}: {e}")
+                except MemoryError as mem_error:
+                    print(f"Memory error processing page {page_num} with PyPDF2: {mem_error}")
+                    break
                 except Exception as e:
                     print(f"Error processing page {page_num} with PyPDF2: {e}")
+    except MemoryError as mem_error:
+        print(f"Memory error in PyPDF2 image extraction: {mem_error}")
     except Exception as e:
         print(f"Error in PyPDF2 image extraction: {e}")
     
@@ -169,43 +312,43 @@ def index():
 
 def extract_image_content(image_path):
     """
-    Extract content from an image file.
+    Extract content from an image file with memory optimization.
     Returns a dictionary with image data.
     """
     try:
         with Image.open(image_path) as img:
-            # Get image dimensions
-            width, height = img.size
+            # Get original image dimensions
+            original_width, original_height = img.size
             
-            # Get image format
-            format_name = img.format or 'PNG'
+            # Optimize image (resize if needed, compress, convert to JPEG)
+            img_bytes, mime_type = optimize_image(img.copy())
+            
+            if not img_bytes or not mime_type:
+                raise Exception('Failed to optimize image')
+            
+            # Get final dimensions after optimization
+            optimized_img = Image.open(BytesIO(img_bytes))
+            final_width, final_height = optimized_img.size
+            optimized_img.close()
             
             # Convert to base64
-            img_buffer = BytesIO()
-            # Save in original format if possible, otherwise PNG
-            save_format = format_name if format_name in ['JPEG', 'PNG', 'GIF', 'WEBP'] else 'PNG'
-            img.save(img_buffer, format=save_format)
-            img_bytes = img_buffer.getvalue()
             image_base64 = base64.b64encode(img_bytes).decode('utf-8')
             
-            # Determine MIME type
-            mime_type_map = {
-                'JPEG': 'image/jpeg',
-                'PNG': 'image/png',
-                'GIF': 'image/gif',
-                'WEBP': 'image/webp'
-            }
-            mime_type = mime_type_map.get(save_format, 'image/png')
+            # Check size limit
+            if len(img_bytes) > MAX_IMAGE_SIZE_BYTES:
+                print(f"Warning: Image {os.path.basename(image_path)} size ({len(img_bytes)} bytes) exceeds limit ({MAX_IMAGE_SIZE_BYTES} bytes)")
             
             return {
                 'type': 'image',
                 'filename': os.path.basename(image_path),
-                'width': width,
-                'height': height,
-                'format': save_format,
+                'width': final_width,
+                'height': final_height,
+                'format': 'JPEG',  # Always JPEG after optimization
                 'data': f"data:{mime_type};base64,{image_base64}",
                 'size': len(img_bytes)
             }
+    except MemoryError as mem_error:
+        raise Exception(f'Memory error processing image: {str(mem_error)}')
     except Exception as e:
         raise Exception(f'Error processing image: {str(e)}')
 
@@ -570,6 +713,8 @@ def extract_facts_from_documents(files_data):
     
     # Prepare content for OpenAI
     content_parts = []
+    images_added_count = 0  # Track number of images being sent to OpenAI
+    
     text_content = """You are an expert at extracting structured facts from auto insurance claim narratives. 
 Analyze the following documents and extract ALL accident-relevant facts in a structured format.
 
@@ -625,10 +770,15 @@ Documents to analyze:
                 if page_text:
                     text_content += f"\nPage {page.get('page_number', '?')}:\n{page_text}\n"
             
-            # Add images from PDF
+            # Add images from PDF (with limits)
             for page in pages:
                 images = page.get('images', [])
                 for img in images:
+                    # Limit total images sent to OpenAI API
+                    if images_added_count >= MAX_TOTAL_IMAGES_PER_REQUEST:
+                        print(f"Warning: Reached image limit ({MAX_TOTAL_IMAGES_PER_REQUEST}), skipping remaining images")
+                        break
+                    
                     img_data = img.get('data', '')
                     if img_data:
                         if img_data.startswith('data:'):
@@ -646,39 +796,58 @@ Documents to analyze:
                             base64_data = img_data
                             mime_type = img.get('ext', 'png')
                         
+                        # Check individual image size before adding
+                        if len(base64_data) > MAX_IMAGE_SIZE_BYTES * 2:  # Allow 2x for base64 overhead
+                            print(f"Warning: Skipping large image ({len(base64_data)} bytes) from {filename}")
+                            continue
+                        
                         content_parts.append({
                             "type": "image_url",
                             "image_url": {
                                 "url": f"data:image/{mime_type};base64,{base64_data}"
                             }
                         })
+                        images_added_count += 1
+                
+                if images_added_count >= MAX_TOTAL_IMAGES_PER_REQUEST:
+                    break
         
         elif file_type == 'image':
-            img_data = file_data.get('data', '')
-            if img_data:
-                if img_data.startswith('data:'):
-                    parts = img_data.split(',')
-                    if len(parts) == 2:
-                        base64_data = parts[1]
-                        mime_part = parts[0]
-                        if 'image/' in mime_part:
-                            mime_type = mime_part.split('image/')[1].split(';')[0]
+            # Limit total images sent to OpenAI API
+            if images_added_count >= MAX_TOTAL_IMAGES_PER_REQUEST:
+                print(f"Warning: Reached image limit ({MAX_TOTAL_IMAGES_PER_REQUEST}), skipping image {filename}")
+                text_content += f"\nThis is an image file: {filename} (skipped due to image limit)\n"
+            else:
+                img_data = file_data.get('data', '')
+                if img_data:
+                    if img_data.startswith('data:'):
+                        parts = img_data.split(',')
+                        if len(parts) == 2:
+                            base64_data = parts[1]
+                            mime_part = parts[0]
+                            if 'image/' in mime_part:
+                                mime_type = mime_part.split('image/')[1].split(';')[0]
+                            else:
+                                mime_type = file_data.get('format', 'png').lower()
                         else:
-                            mime_type = file_data.get('format', 'png').lower()
+                            continue
                     else:
-                        continue
-                else:
-                    base64_data = img_data
-                    mime_type = file_data.get('format', 'png').lower()
-                
-                content_parts.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": f"data:image/{mime_type};base64,{base64_data}"
-                    }
-                })
-                
-                text_content += f"\nThis is an image file: {filename}\n"
+                        base64_data = img_data
+                        mime_type = file_data.get('format', 'png').lower()
+                    
+                    # Check individual image size before adding
+                    if len(base64_data) > MAX_IMAGE_SIZE_BYTES * 2:  # Allow 2x for base64 overhead
+                        print(f"Warning: Skipping large image ({len(base64_data)} bytes): {filename}")
+                        text_content += f"\nThis is an image file: {filename} (skipped due to size limit)\n"
+                    else:
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{mime_type};base64,{base64_data}"
+                            }
+                        })
+                        images_added_count += 1
+                        text_content += f"\nThis is an image file: {filename}\n"
         
     # Add text content
     content_parts.insert(0, {
@@ -688,6 +857,14 @@ Documents to analyze:
     
     # Call OpenAI API with JSON mode
     try:
+        # Estimate content size before API call
+        try:
+            content_size = sys.getsizeof(str(content_parts))
+            if content_size > 20 * 1024 * 1024:  # 20MB warning
+                print(f"Warning: Large content payload ({content_size / (1024*1024):.1f}MB) being sent to OpenAI API")
+        except Exception:
+            pass  # Ignore size estimation errors
+        
         response = openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
@@ -701,6 +878,9 @@ Documents to analyze:
         )
         
         response_text = response.choices[0].message.content
+        
+        # Clean up content_parts to free memory
+        del content_parts
         
         # Parse JSON response
         try:
@@ -773,8 +953,14 @@ Documents to analyze:
             else:
                 raise Exception(f"Failed to parse JSON response: {str(e)}")
     
+    except MemoryError as mem_error:
+        error_msg = f"Insufficient memory during OpenAI API call. Try reducing the number of images or files."
+        print(f"Memory error in extract_facts_from_documents: {mem_error}")
+        raise Exception(error_msg)
     except Exception as e:
-        raise Exception(f"OpenAI API error: {str(e)}")
+        error_msg = f"OpenAI API error: {str(e)}"
+        print(f"Error in extract_facts_from_documents: {error_msg}")
+        raise Exception(error_msg)
 
 
 @app.route('/extract-facts', methods=['POST'])
@@ -793,16 +979,75 @@ def extract_facts():
         if not files_data:
             return jsonify({'error': 'No files provided'}), 400
         
+        # Memory limit validation: Count total images and check payload size
+        total_images = 0
+        total_payload_size = 0
+        
+        try:
+            # Estimate payload size and count images
+            payload_json = json.dumps(request.json)
+            total_payload_size = sys.getsizeof(payload_json)
+            
+            for file_data in files_data:
+                file_type = file_data.get('type', 'unknown')
+                
+                if file_type == 'pdf':
+                    pages = file_data.get('pages', [])
+                    for page in pages:
+                        images = page.get('images', [])
+                        total_images += len(images)
+                        
+                        # Estimate size of image data
+                        for img in images:
+                            img_data = img.get('data', '')
+                            if img_data:
+                                # Base64 data size estimation (rough)
+                                total_payload_size += sys.getsizeof(img_data)
+                
+                elif file_type == 'image':
+                    total_images += 1
+                    img_data = file_data.get('data', '')
+                    if img_data:
+                        total_payload_size += sys.getsizeof(img_data)
+            
+            # Check limits
+            if total_images > MAX_TOTAL_IMAGES_PER_REQUEST:
+                return jsonify({
+                    'error': f'Too many images ({total_images}). Maximum allowed: {MAX_TOTAL_IMAGES_PER_REQUEST}. Please reduce the number of images or split your request.'
+                }), 400
+            
+            # Check payload size (rough estimate: 50MB limit)
+            MAX_PAYLOAD_SIZE_MB = 50
+            MAX_PAYLOAD_SIZE_BYTES = MAX_PAYLOAD_SIZE_MB * 1024 * 1024
+            if total_payload_size > MAX_PAYLOAD_SIZE_BYTES:
+                return jsonify({
+                    'error': f'Request payload too large (estimated {total_payload_size / (1024*1024):.1f}MB). Maximum allowed: {MAX_PAYLOAD_SIZE_MB}MB. Please reduce file sizes or number of files.'
+                }), 400
+            
+            print(f"Processing request: {total_images} images, ~{total_payload_size / (1024*1024):.1f}MB payload")
+        
+        except Exception as validation_error:
+            print(f"Warning: Error during memory validation: {validation_error}")
+            # Continue processing but log the warning
+        
         # Extract facts from documents
         try:
             result = extract_facts_from_documents(files_data)
             return jsonify(result), 200
         
+        except MemoryError as mem_error:
+            error_msg = f'Insufficient memory to process request. Please reduce the number of files or images and try again.'
+            print(f"Memory error in fact extraction: {mem_error}")
+            return jsonify({'error': error_msg}), 500
         except Exception as e:
             error_msg = str(e)
             print(f"Fact extraction error: {error_msg}")  # Log for debugging
             return jsonify({'error': f'Fact extraction failed: {error_msg}'}), 500
     
+    except MemoryError as mem_error:
+        error_msg = f'Insufficient memory to process request. Please reduce the number of files or images and try again.'
+        print(f"Memory error in request handling: {mem_error}")
+        return jsonify({'error': error_msg}), 500
     except Exception as e:
         error_msg = str(e)
         print(f"Request error: {error_msg}")  # Log for debugging

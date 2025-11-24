@@ -19,6 +19,20 @@ let step1Completion = {
     evidenceComplete: false
 };
 
+// Step definitions in order
+const steps = [
+    { id: 'files', name: 'Files', requires: [] },
+    { id: 'fact-matrix', name: 'Fact Matrix', requires: ['files'] },
+    { id: 'liability-signals', name: 'Liability Signals', requires: ['fact-matrix'] },
+    { id: 'evidence-completeness', name: 'Evidence Completeness', requires: ['fact-matrix'] },
+    { id: 'liability-recommendation', name: 'Liability % Recommendation', requires: ['fact-matrix', 'liability-signals'] },
+    { id: 'timeline', name: 'Timeline Reconstruction', requires: ['fact-matrix', 'evidence-completeness'] },
+    { id: 'claim-rationale', name: 'Draft Claim Rationale', requires: ['fact-matrix', 'liability-signals'] },
+    { id: 'escalation-package', name: 'Supervisor Escalation', requires: ['fact-matrix', 'liability-signals'] }
+];
+
+let currentStepIndex = 0;
+
 // Store current facts data
 let currentFactsData = null;
 let currentLiabilitySignalsData = null;
@@ -46,18 +60,111 @@ const uploadedFiles = {};
 document.addEventListener('DOMContentLoaded', () => {
     renderFileList();
     updateStep2Access(); // Initialize Step 2 button state
+    updateStepIndicators();
+    updateProgress();
+    updateNavigationButtons();
+    // Load timeline if available
+    loadTimeline();
 });
+
+// Check if a step is completed
+function isStepCompleted(stepId) {
+    switch(stepId) {
+        case 'files':
+            return Object.keys(uploadedFiles).length > 0;
+        case 'fact-matrix':
+            return step1Completion.factsExtracted;
+        case 'liability-signals':
+            return step1Completion.liabilitySignals;
+        case 'evidence-completeness':
+            return step1Completion.evidenceComplete;
+        case 'liability-recommendation':
+            return currentLiabilityRecommendationData !== null;
+        case 'timeline':
+            return currentTimelineData !== null;
+        case 'claim-rationale':
+            return currentClaimRationaleData !== null;
+        case 'escalation-package':
+            return currentEscalationPackageData !== null;
+        default:
+            return false;
+    }
+}
+
+// Check if a step is accessible (all requirements met)
+function isStepAccessible(stepId) {
+    const step = steps.find(s => s.id === stepId);
+    if (!step) return false;
+    
+    return step.requires.every(req => isStepCompleted(req));
+}
+
+// Update step indicators based on current state
+function updateStepIndicators() {
+    steps.forEach((step, index) => {
+        const stepElement = document.querySelector(`[data-step="${step.id}"]`);
+        if (!stepElement) return;
+        
+        // Remove all state classes
+        stepElement.classList.remove('completed', 'active', 'locked');
+        
+        const isCompleted = isStepCompleted(step.id);
+        const isAccessible = isStepAccessible(step.id);
+        const isActive = index === currentStepIndex;
+        
+        if (isCompleted) {
+            stepElement.classList.add('completed');
+        } else if (isActive) {
+            stepElement.classList.add('active');
+        } else if (!isAccessible) {
+            stepElement.classList.add('locked');
+        }
+    });
+}
+
+// Update segmented progress bar
+function updateProgress() {
+    const segmentedProgressBar = document.getElementById('segmentedProgressBar');
+    if (!segmentedProgressBar) return;
+    
+    // Update each segment based on step completion
+    steps.forEach((step, index) => {
+        const segment = segmentedProgressBar.querySelector(`[data-step-index="${index}"]`);
+        if (!segment) return;
+        
+        const isCompleted = isStepCompleted(step.id);
+        
+        // Remove all state classes
+        segment.classList.remove('completed', 'incomplete');
+        
+        // Add appropriate class
+        if (isCompleted) {
+            segment.classList.add('completed');
+        } else {
+            segment.classList.add('incomplete');
+        }
+    });
+}
 
 // Tab switching function
 function switchTab(tabName) {
-    // Update tab buttons
-    document.querySelectorAll('.file-tab').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    const tabButton = document.querySelector(`[data-tab="${tabName}"]`);
-    if (tabButton) {
-        tabButton.classList.add('active');
+    // Find step index
+    const stepIndex = steps.findIndex(s => s.id === tabName);
+    if (stepIndex === -1) return;
+    
+    // Check if step is accessible
+    if (!isStepAccessible(tabName) && !isStepCompleted(tabName)) {
+        showError('Please complete the previous steps first.');
+        return;
     }
+    
+    currentStepIndex = stepIndex;
+    
+    // Update step indicators
+    updateStepIndicators();
+    
+    // Update progress bar
+    updateProgress();
     
     // Update tab content
     document.querySelectorAll('.tab-content').forEach(content => {
@@ -94,6 +201,44 @@ function switchTab(tabName) {
     // Hide file content view when switching tabs
     if (tabName === 'files') {
         fileContentView.style.display = 'none';
+    }
+    
+    // Update navigation buttons
+    updateNavigationButtons();
+}
+
+// Navigation functions
+function goToPreviousStep() {
+    if (currentStepIndex > 0) {
+        const previousStep = steps[currentStepIndex - 1];
+        switchTab(previousStep.id);
+    }
+}
+
+function goToNextStep() {
+    if (currentStepIndex < steps.length - 1) {
+        const nextStep = steps[currentStepIndex + 1];
+        if (isStepAccessible(nextStep.id) || isStepCompleted(nextStep.id)) {
+            switchTab(nextStep.id);
+        } else {
+            showError('Please complete the current step first.');
+        }
+    }
+}
+
+// Update navigation buttons state
+function updateNavigationButtons() {
+    const prevButton = document.getElementById('prevButton');
+    const nextButton = document.getElementById('nextButton');
+    
+    if (prevButton) {
+        prevButton.disabled = currentStepIndex === 0;
+    }
+    
+    if (nextButton) {
+        const nextStep = steps[currentStepIndex + 1];
+        const canGoNext = nextStep && (isStepAccessible(nextStep.id) || isStepCompleted(nextStep.id));
+        nextButton.disabled = !canGoNext || currentStepIndex >= steps.length - 1;
     }
 }
 
@@ -197,6 +342,8 @@ function handleFileUpload(file, expectedFileName) {
             
             // Re-render file list to show uploaded status
             renderFileList();
+            updateStepIndicators();
+            updateProgress();
             
             // Show success message briefly
             showSuccess(`${expectedFile.displayName} uploaded successfully!`);
@@ -326,6 +473,8 @@ function extractFacts() {
             // Mark Step 1 fact extraction as complete
             step1Completion.factsExtracted = true;
             updateStep2Access();
+            updateStepIndicators();
+            updateProgress();
             // Display fact matrix
             displayFactMatrix(data);
         } else {
@@ -1158,6 +1307,8 @@ function analyzeLiabilitySignals() {
             // Mark Step 1 liability signals as complete
             step1Completion.liabilitySignals = true;
             updateStep2Access();
+            updateStepIndicators();
+            updateProgress();
             // Display liability signals
             displayLiabilitySignals(data);
         } else {
@@ -1324,6 +1475,8 @@ function checkEvidenceCompleteness() {
             // Mark Step 1 evidence completeness as complete
             step1Completion.evidenceComplete = true;
             updateStep2Access();
+            updateStepIndicators();
+            updateProgress();
             // Display evidence completeness results
             displayEvidenceCompleteness(data);
         } else {
@@ -1490,6 +1643,8 @@ function getLiabilityRecommendation() {
         } else if (data.claimant_liability_percent !== undefined && data.other_driver_liability_percent !== undefined) {
             // Store recommendation data
             currentLiabilityRecommendationData = data;
+            updateStepIndicators();
+            updateProgress();
             // Display liability recommendation
             displayLiabilityRecommendation(data);
         } else {
@@ -1686,6 +1841,8 @@ function generateTimeline() {
             showError('Timeline generation failed: ' + timelineData.error);
         } else if (timelineData.timeline) {
             currentTimelineData = timelineData;
+            updateStepIndicators();
+            updateProgress();
             displayTimeline(timelineData);
         }
         
@@ -1694,6 +1851,8 @@ function generateTimeline() {
             console.error('Liability recommendation failed:', recommendationData.error);
         } else if (recommendationData.claimant_liability_percent !== undefined) {
             currentLiabilityRecommendationData = recommendationData;
+            updateStepIndicators();
+            updateProgress();
             displayLiabilityRecommendation(recommendationData);
         }
         
@@ -1702,6 +1861,8 @@ function generateTimeline() {
             console.error('Claim rationale failed:', rationaleData.error);
         } else if (rationaleData.rationale) {
             currentClaimRationaleData = rationaleData;
+            updateStepIndicators();
+            updateProgress();
             displayClaimRationale(rationaleData.rationale);
         }
         
@@ -1710,6 +1871,8 @@ function generateTimeline() {
             console.error('Escalation package failed:', escalationData.error);
         } else if (escalationData.escalation_package) {
             currentEscalationPackageData = escalationData;
+            updateStepIndicators();
+            updateProgress();
             displayEscalationPackage(escalationData.escalation_package);
         }
         
@@ -1912,6 +2075,8 @@ function loadTimeline() {
         if (savedTimeline) {
             const timelineData = JSON.parse(savedTimeline);
             currentTimelineData = timelineData;
+            updateStepIndicators();
+            updateProgress();
             displayTimeline(timelineData);
         }
     } catch (err) {
@@ -1958,6 +2123,8 @@ function generateClaimRationale() {
         } else if (data.rationale) {
             // Store rationale data
             currentClaimRationaleData = data;
+            updateStepIndicators();
+            updateProgress();
             // Display rationale
             displayClaimRationale(data.rationale);
         } else {
@@ -2147,6 +2314,8 @@ function generateEscalationPackage() {
         } else if (data.escalation_package) {
             // Store escalation package data
             currentEscalationPackageData = data;
+            updateStepIndicators();
+            updateProgress();
             // Display escalation package
             displayEscalationPackage(data.escalation_package);
         } else {

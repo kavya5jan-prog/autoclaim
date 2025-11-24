@@ -22,7 +22,7 @@ body {
 }
 
 header {
-    background: #333;
+    background: #4a4a4a;
     color: white;
     padding: 20px;
     text-align: center;
@@ -162,13 +162,197 @@ header p {
     padding: 0;
 }
 
-.files-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 12px 20px 0;
-    background: #f9f9f9;
+/* Step Progress Container */
+.step-progress-container {
+    background: #f5f5f5;
+    padding: 20px;
     border-bottom: 1px solid #ddd;
+}
+
+/* Segmented Progress Bar - positioned above step indicators */
+.segmented-progress-bar {
+    display: flex;
+    width: 100%;
+    height: 8px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #e0e0e0;
+    gap: 2px;
+}
+
+.progress-segment {
+    flex: 1;
+    height: 100%;
+    background: #e0e0e0;
+    transition: background-color 0.3s ease;
+    border-radius: 2px;
+}
+
+.progress-segment.completed {
+    background: #28a745;
+}
+
+.progress-segment.incomplete {
+    background: #e0e0e0;
+}
+
+.step-indicators {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.step-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    flex: 1;
+    min-width: 100px;
+    position: relative;
+    transition: all 0.3s ease;
+}
+
+.step-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #e0e0e0;
+    color: #999;
+    position: relative;
+    z-index: 1;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+/* Completed state - Green */
+.step-item.completed .step-icon {
+    background: #28a745;
+    color: white;
+    border-color: #28a745;
+}
+
+.step-item.completed .step-label {
+    color: #28a745;
+    font-weight: 600;
+}
+
+/* Active/Current state - Dark blue */
+.step-item.active .step-icon {
+    background: #1e3a8a;
+    color: white;
+    border-color: #1e3a8a;
+    box-shadow: 0 0 0 3px rgba(30, 58, 138, 0.2);
+}
+
+.step-item.active .step-label {
+    color: #1e3a8a;
+    font-weight: 600;
+    text-decoration: underline;
+}
+
+/* Locked/Future state - Grey with low opacity */
+.step-item.locked .step-icon {
+    background: #e0e0e0;
+    color: #999;
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.step-item.locked .step-icon svg {
+    opacity: 0.5;
+}
+
+.step-item.locked .step-label {
+    color: #999;
+    opacity: 0.5;
+}
+
+.step-label {
+    font-size: 0.75em;
+    color: #666;
+    text-align: center;
+    font-weight: 500;
+    transition: all 0.3s ease;
+}
+
+/* Hover states */
+.step-item:hover:not(.locked) .step-icon {
+    transform: scale(1.15);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.step-item:hover:not(.locked).completed .step-icon {
+    background: #218838;
+    border-color: #218838;
+}
+
+.step-item:hover:not(.locked).active .step-icon {
+    background: #1e40af;
+    border-color: #1e40af;
+}
+
+.step-item:hover:not(.locked):not(.completed):not(.active) .step-icon {
+    background: #d0d0d0;
+    color: #666;
+}
+
+/* Old overall-progress removed - using segmented progress bar instead */
+
+/* Navigation Buttons */
+.navigation-buttons {
+    display: flex;
+    justify-content: space-between;
+    padding: 20px;
+    border-top: 1px solid #e0e0e0;
+    background: #f9f9f9;
+}
+
+.nav-button {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: all 0.3s ease;
+}
+
+.prev-button {
+    background: #e0e0e0;
+    color: #666;
+}
+
+.prev-button:hover:not(:disabled) {
+    background: #d0d0d0;
+}
+
+.next-button {
+    background: #1e3a8a;
+    color: white;
+}
+
+.next-button:hover:not(:disabled) {
+    background: #1e40af;
+}
+
+.nav-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Header Actions */
+.header-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
 }
 
 .file-list-container {
