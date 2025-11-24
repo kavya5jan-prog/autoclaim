@@ -9,41 +9,35 @@
 <body>
     <div class="container">
         <header>
-            <h1>Auto Claims File Manager</h1>
-            <p>Upload and view claim-related documents</p>
+            <h1>AVA</h1>
+            <p>Automated Vehicle Adjudicator</p>
         </header>
 
         <div class="files-section" id="filesSection">
             <div class="files-tabs">
                 <div class="file-tab active" data-tab="files" onclick="switchTab('files')">
-                    <span>📁 Files</span>
-                </div>
-                <div class="file-tab" data-tab="summary" onclick="switchTab('summary')">
-                    <span>📊 Summary</span>
+                    <span>Files</span>
                 </div>
                 <div class="file-tab" data-tab="fact-matrix" onclick="switchTab('fact-matrix')">
-                    <span>🔍 Fact Matrix</span>
+                    <span>Fact Matrix</span>
                 </div>
                 <div class="file-tab" data-tab="liability-signals" onclick="switchTab('liability-signals')">
-                    <span>⚖️ Liability Signals</span>
+                    <span>Liability Signals</span>
                 </div>
                 <div class="file-tab" data-tab="evidence-completeness" onclick="switchTab('evidence-completeness')">
-                    <span>✅ Evidence Completeness</span>
-                </div>
-                <div class="file-tab" data-tab="coverage-impact" onclick="switchTab('coverage-impact')">
-                    <span>🛡️ Coverage Impact</span>
+                    <span>Evidence Completeness</span>
                 </div>
                 <div class="file-tab" data-tab="liability-recommendation" onclick="switchTab('liability-recommendation')">
-                    <span>📊 Liability % Recommendation</span>
+                    <span>Liability % Recommendation</span>
                 </div>
                 <div class="file-tab" data-tab="timeline" onclick="switchTab('timeline')">
-                    <span>🕐 Timeline Reconstruction</span>
+                    <span>Timeline Reconstruction</span>
                 </div>
                 <div class="file-tab" data-tab="claim-rationale" onclick="switchTab('claim-rationale')">
-                    <span>📝 Draft Claim Rationale</span>
+                    <span>Draft Claim Rationale</span>
                 </div>
                 <div class="file-tab" data-tab="escalation-package" onclick="switchTab('escalation-package')">
-                    <span>⚠️ Supervisor Escalation</span>
+                    <span>Supervisor Escalation</span>
                 </div>
             </div>
             
@@ -54,7 +48,7 @@
                         <div class="file-list-header">
                             <h2>Claim Documents</h2>
                             <button class="summary-button" id="extractFactsButton" onclick="extractFacts()">
-                                🔍 Extract Facts
+                                Extract Facts
                             </button>
                         </div>
                         <div class="file-list" id="fileList">
@@ -68,26 +62,12 @@
                     </div>
                 </div>
                 
-                <!-- Summary Tab -->
-                <div class="tab-content" id="summaryTab" style="display: none;">
-                    <div class="summary-view" id="summaryView">
-                        <div class="summary-header">
-                            <h2>Claim Summary</h2>
-                            <button class="summary-button" onclick="generateSummary()">📊 Generate Summary</button>
-                        </div>
-                        <div class="summary-content" id="summaryContent">
-                            <!-- Summary will be displayed here -->
-                            <p class="empty-state">Click "Generate Summary" to create a summary of all uploaded documents.</p>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- Fact Matrix Tab -->
                 <div class="tab-content" id="factMatrixTab" style="display: none;">
                     <div class="fact-matrix-view" id="factMatrixView">
                         <div class="fact-matrix-header">
                             <h2>Fact Matrix</h2>
-                            <button class="export-button" id="exportButton" onclick="exportFactsAsJSON()">📥 Export JSON</button>
+                            <button class="export-button" id="exportButton" onclick="exportFactsAsJSON()">Export JSON</button>
                         </div>
                     
                     <div class="fact-matrix-controls">
@@ -130,26 +110,52 @@
                         </div>
                     </div>
                     
-                    <div class="conflicts-section" id="conflictsSection" style="display: none;">
-                        <h3>⚠️ Conflicting Facts</h3>
-                        <div id="conflictsContent"></div>
+                    <div class="tab-loading" id="factMatrixLoading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>Processing...</p>
                     </div>
                     
-                    <div class="fact-matrix-content">
-                        <div class="fact-table-container">
-                            <table class="fact-table" id="factTable">
+                    <div class="fact-matrix-split-container" id="factMatrixSplitContainer">
+                        <div class="conflicts-panel" id="conflictsPanel" style="display: none;">
+                            <h3>Conflicting Facts</h3>
+                            <div id="conflictsContent"></div>
+                        </div>
+                        
+                        <div class="fact-matrix-content">
+                            <div class="fact-table-container">
+                                <table class="fact-table" id="factTable">
+                                    <thead>
+                                        <tr>
+                                            <th>Fact #</th>
+                                            <th>Source Text</th>
+                                            <th>Extracted Fact</th>
+                                            <th>Category</th>
+                                            <th>Source</th>
+                                            <th>Implied</th>
+                                            <th>Contradicting</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="factTableBody">
+                                        <!-- Facts will be rendered here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="accepted-decisions-section" id="acceptedDecisionsSection" style="display: none;">
+                        <h3>Accepted Decisions</h3>
+                        <div class="accepted-decisions-table-container">
+                            <table class="accepted-decisions-table" id="acceptedDecisionsTable">
                                 <thead>
                                     <tr>
-                                        <th>Source Text</th>
-                                        <th>Extracted Fact</th>
-                                        <th>Category</th>
-                                        <th>Source</th>
-                                        <th>Implied</th>
-                                        <th>Contradicting</th>
+                                        <th>Conflict Description</th>
+                                        <th>Accepted Value</th>
+                                        <th>Resolved</th>
                                     </tr>
                                 </thead>
-                                <tbody id="factTableBody">
-                                    <!-- Facts will be rendered here -->
+                                <tbody id="acceptedDecisionsTableBody">
+                                    <!-- Accepted decisions will be rendered here -->
                                 </tbody>
                             </table>
                         </div>
@@ -163,11 +169,15 @@
                         <div class="liability-signals-header">
                             <h2>Liability Signals</h2>
                             <button class="summary-button" id="analyzeSignalsButton" onclick="analyzeLiabilitySignals()">
-                                ⚖️ Analyze Signals
+                                Analyze Signals
                             </button>
                         </div>
                     
                         <div class="liability-signals-content">
+                            <div class="tab-loading" id="liabilitySignalsLoading" style="display: none;">
+                                <div class="spinner"></div>
+                                <p>Processing...</p>
+                            </div>
                             <div class="liability-signals-table-container">
                                 <table class="liability-signals-table" id="liabilitySignalsTable">
                                     <thead>
@@ -200,11 +210,15 @@
                         <div class="evidence-completeness-header">
                             <h2>Evidence Completeness Check</h2>
                             <button class="summary-button" id="checkEvidenceButton" onclick="checkEvidenceCompleteness()">
-                                ✅ Check Completeness
+                                Check Completeness
                             </button>
                         </div>
                     
                         <div class="evidence-completeness-content">
+                            <div class="tab-loading" id="evidenceCompletenessLoading" style="display: none;">
+                                <div class="spinner"></div>
+                                <p>Processing...</p>
+                            </div>
                             <!-- Checks Summary Section -->
                             <div class="checks-summary-section" id="checksSummarySection" style="display: none;">
                                 <h3>Completeness Checks</h3>
@@ -229,50 +243,13 @@
                     </div>
                 </div>
                 
-                <!-- Coverage Impact Tab -->
-                <div class="tab-content" id="coverageImpactTab" style="display: none;">
-                    <div class="coverage-impact-view" id="coverageImpactView">
-                        <div class="coverage-impact-header">
-                            <h2>Coverage Impact Detector</h2>
-                            <button class="summary-button" id="analyzeCoverageButton" onclick="analyzeCoverageImpact()">
-                                🛡️ Analyze Coverage Impact
-                            </button>
-                        </div>
-                    
-                        <div class="coverage-impact-content">
-                            <div class="coverage-impact-table-container">
-                                <table class="coverage-impact-table" id="coverageImpactTable">
-                                    <thead>
-                                        <tr>
-                                            <th>Triggering Fact</th>
-                                            <th>Source</th>
-                                            <th>Policy Clause</th>
-                                            <th>Risk Level</th>
-                                            <th>Coverage Exclusion Type</th>
-                                            <th>Explanation</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="coverageImpactTableBody">
-                                        <!-- Coverage impacts will be rendered here -->
-                                        <tr>
-                                            <td colspan="6" style="text-align: center; padding: 40px;">
-                                                <p class="empty-state">Extract facts first, then click "Analyze Coverage Impact" to identify coverage-relevant facts.</p>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
                 <!-- Liability Recommendation Tab -->
                 <div class="tab-content" id="liabilityRecommendationTab" style="display: none;">
                     <div class="liability-recommendation-view" id="liabilityRecommendationView">
                         <div class="liability-recommendation-header">
                             <h2>Liability % Recommendation</h2>
                             <button class="summary-button" id="getRecommendationButton" onclick="getLiabilityRecommendation()">
-                                📊 Get Recommendation
+                                Get Recommendation
                             </button>
                         </div>
                     
@@ -321,7 +298,7 @@
                                 
                                 <div class="recommendation-actions">
                                     <button class="update-button" onclick="updateLiabilityRecommendation()">
-                                        💾 Update Recommendation
+                                        Update Recommendation
                                     </button>
                                 </div>
                             </div>
@@ -340,15 +317,19 @@
                             <h2>Timeline Reconstruction</h2>
                             <div class="timeline-header-actions">
                                 <button class="summary-button" id="generateTimelineButton" onclick="generateTimeline()">
-                                    🕐 Generate Timeline
+                                    Generate Timeline
                                 </button>
-                                <button class="summary-button" id="saveTimelineButton" onclick="saveTimeline()" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                                    💾 Save Timeline
+                                <button class="summary-button" id="saveTimelineButton" onclick="saveTimeline()" style="display: none;">
+                                    Save Timeline
                                 </button>
                             </div>
                         </div>
                     
                         <div class="timeline-content">
+                            <div class="tab-loading" id="timelineLoading" style="display: none;">
+                                <div class="spinner"></div>
+                                <p>Processing...</p>
+                            </div>
                             <div class="timeline-events-container" id="timelineEventsContainer" style="display: none;">
                                 <ol class="timeline-events-list" id="timelineEventsList">
                                     <!-- Timeline events will be rendered here -->
@@ -368,7 +349,7 @@
                         <div class="claim-rationale-header">
                             <h2>Draft Claim File Rationale</h2>
                             <button class="summary-button" id="generateRationaleButton" onclick="generateClaimRationale()">
-                                📝 Generate Rationale
+                                Generate Rationale
                             </button>
                         </div>
                     
@@ -390,7 +371,7 @@
                         <div class="escalation-package-header">
                             <h2>Supervisor Escalation Packaging</h2>
                             <button class="summary-button" id="generateEscalationButton" onclick="generateEscalationPackage()">
-                                ⚠️ Generate Escalation Package
+                                Generate Escalation Package
                             </button>
                         </div>
                     

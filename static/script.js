@@ -8,9 +8,16 @@ const factMatrixView = document.getElementById('factMatrixView');
 const metadataDiv = document.getElementById('metadata');
 const pagesDiv = document.getElementById('pages');
 const factTableBody = document.getElementById('factTableBody');
-const conflictsSection = document.getElementById('conflictsSection');
+const conflictsPanel = document.getElementById('conflictsPanel');
 const conflictsContent = document.getElementById('conflictsContent');
-const summaryContent = document.getElementById('summaryContent');
+const acceptedDecisionsSection = document.getElementById('acceptedDecisionsSection');
+
+// Step 1 completion tracking
+let step1Completion = {
+    factsExtracted: false,
+    liabilitySignals: false,
+    evidenceComplete: false
+};
 
 // Store current facts data
 let currentFactsData = null;
@@ -38,6 +45,7 @@ const uploadedFiles = {};
 // Initialize file list on page load
 document.addEventListener('DOMContentLoaded', () => {
     renderFileList();
+    updateStep2Access(); // Initialize Step 2 button state
 });
 
 // Tab switching function
@@ -60,11 +68,9 @@ function switchTab(tabName) {
     // Map tab names to IDs
     const tabIdMap = {
         'files': 'filesTab',
-        'summary': 'summaryTab',
         'fact-matrix': 'factMatrixTab',
         'liability-signals': 'liabilitySignalsTab',
         'evidence-completeness': 'evidenceCompletenessTab',
-        'coverage-impact': 'coverageImpactTab',
         'liability-recommendation': 'liabilityRecommendationTab',
         'timeline': 'timelineTab',
         'claim-rationale': 'claimRationaleTab',
@@ -164,7 +170,7 @@ function handleFileUpload(file, expectedFileName) {
         return;
     }
     
-    // Show loading state
+    // Show loading state (keep global for file uploads)
     loading.style.display = 'block';
     error.style.display = 'none';
     
@@ -230,6 +236,47 @@ function showFileList() {
     fileContentView.style.display = 'none';
 }
 
+// Tab-specific loading indicator functions
+function showTabLoading(tabName, message = 'Processing...') {
+    const loadingId = tabName + 'Loading';
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+        const messageEl = loadingEl.querySelector('p');
+        if (messageEl) {
+            messageEl.textContent = message;
+        }
+        loadingEl.style.display = 'block';
+    }
+}
+
+function hideTabLoading(tabName) {
+    const loadingId = tabName + 'Loading';
+    const loadingEl = document.getElementById(loadingId);
+    if (loadingEl) {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function checkStep1Completion() {
+    return step1Completion.factsExtracted && 
+           step1Completion.evidenceComplete;
+}
+
+function updateStep2Access() {
+    const timelineButton = document.getElementById('generateTimelineButton');
+    if (timelineButton) {
+        if (checkStep1Completion()) {
+            timelineButton.disabled = false;
+            timelineButton.style.opacity = '1';
+            timelineButton.style.cursor = 'pointer';
+        } else {
+            timelineButton.disabled = true;
+            timelineButton.style.opacity = '0.5';
+            timelineButton.style.cursor = 'not-allowed';
+        }
+    }
+}
+
 function extractFacts() {
     // Check if there are any uploaded files
     const uploadedCount = Object.keys(uploadedFiles).length;
@@ -238,8 +285,11 @@ function extractFacts() {
         return;
     }
     
-    // Show loading state
-    loading.style.display = 'block';
+    // Navigate to Fact Matrix tab immediately
+    switchTab('fact-matrix');
+    
+    // Show loading state in Fact Matrix tab
+    showTabLoading('factMatrix', 'Extracting facts...');
     error.style.display = 'none';
     
     // Prepare files data to send
@@ -255,13 +305,16 @@ function extractFacts() {
     })
     .then(response => response.json())
     .then(data => {
-        loading.style.display = 'none';
+        hideTabLoading('factMatrix');
         
         if (data.error) {
             showError(data.error);
         } else if (data.facts) {
             // Store facts data
             currentFactsData = data;
+            // Mark Step 1 fact extraction as complete
+            step1Completion.factsExtracted = true;
+            updateStep2Access();
             // Display fact matrix
             displayFactMatrix(data);
         } else {
@@ -269,7 +322,7 @@ function extractFacts() {
         }
     })
     .catch(err => {
-        loading.style.display = 'none';
+        hideTabLoading('factMatrix');
         showError('Failed to extract facts. Please try again.');
         console.error('Error:', err);
     });
@@ -279,11 +332,47 @@ function displayFactMatrix(factsData) {
     // Switch to Fact Matrix tab
     switchTab('fact-matrix');
     
-    // Display conflicts if any
-    if (factsData.conflicts && factsData.conflicts.length > 0) {
+    // Check if conflicts exist and update layout
+    const hasConflicts = factsData.conflicts && factsData.conflicts.length > 0;
+    const allConflictsResolved = hasConflicts && factsData.conflicts.every((c, idx) => 
+        currentFactsData.acceptedVersions && currentFactsData.acceptedVersions[idx]
+    );
+    
+    const splitContainer = document.getElementById('factMatrixSplitContainer');
+    const factMatrixContent = document.querySelector('.fact-matrix-content');
+    
+    if (hasConflicts && !allConflictsResolved) {
+        // Show split layout: conflicts panel left, fact matrix right
+        if (splitContainer) {
+            splitContainer.style.display = 'flex';
+        }
+        if (conflictsPanel) {
+            conflictsPanel.style.display = 'block';
+        }
+        if (acceptedDecisionsSection) {
+            acceptedDecisionsSection.style.display = 'none';
+        }
+        if (factMatrixContent) {
+            factMatrixContent.style.flex = '1';
+        }
         displayConflicts(factsData.conflicts);
     } else {
-        conflictsSection.style.display = 'none';
+        // Show single column layout: fact matrix top, accepted decisions bottom
+        if (splitContainer) {
+            splitContainer.style.display = 'block';
+        }
+        if (conflictsPanel) {
+            conflictsPanel.style.display = 'none';
+        }
+        if (factMatrixContent) {
+            factMatrixContent.style.flex = 'none';
+        }
+        if (acceptedDecisionsSection && currentFactsData.acceptedVersions && Object.keys(currentFactsData.acceptedVersions).length > 0) {
+            acceptedDecisionsSection.style.display = 'block';
+            displayAcceptedDecisions();
+        } else if (acceptedDecisionsSection) {
+            acceptedDecisionsSection.style.display = 'none';
+        }
     }
     
     // Render facts table
@@ -297,7 +386,7 @@ function renderFactTable(facts) {
     factTableBody.innerHTML = '';
     
     if (!facts || facts.length === 0) {
-        factTableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No facts extracted.</td></tr>';
+        factTableBody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">No facts extracted.</td></tr>';
         return;
     }
     
@@ -358,9 +447,16 @@ function checkIfFactIsContradicting(fact, factIndex) {
 function renderFactRow(fact, index) {
     const row = document.createElement('tr');
     row.dataset.index = index;
+    row.dataset.factNumber = index + 1;
     row.dataset.category = fact.category || '';
     row.dataset.source = fact.source || '';
     row.dataset.factText = (fact.extracted_fact || '').toLowerCase();
+    
+    // Fact number (first column)
+    const factNumberCell = document.createElement('td');
+    factNumberCell.textContent = index + 1;
+    factNumberCell.style.fontWeight = '600';
+    factNumberCell.style.textAlign = 'center';
     
     // Source text (truncated with expand)
     const sourceTextCell = document.createElement('td');
@@ -397,20 +493,19 @@ function renderFactRow(fact, index) {
     // Source (with badge)
     const sourceCell = document.createElement('td');
     const source = fact.source || 'unknown';
-    const sourceIcon = getSourceIcon(source);
-    sourceCell.innerHTML = `<span class="source-badge source-${source}">${sourceIcon} ${source.replace('_', ' ')}</span>`;
+    sourceCell.innerHTML = `<span class="source-badge source-${source}">${source.replace('_', ' ')}</span>`;
     
     // Implied (flag indicator)
     const impliedCell = document.createElement('td');
     if (fact.is_implied) {
         const impliedSpan = document.createElement('span');
         impliedSpan.className = 'implied-flag implied-flag-implied';
-        impliedSpan.textContent = '⚠️ Implied';
+        impliedSpan.textContent = 'Implied';
         impliedCell.appendChild(impliedSpan);
     } else {
         const explicitSpan = document.createElement('span');
         explicitSpan.className = 'implied-flag implied-flag-explicit';
-        explicitSpan.textContent = '✓ Explicit';
+        explicitSpan.textContent = 'Explicit';
         impliedCell.appendChild(explicitSpan);
     }
     
@@ -447,6 +542,7 @@ function renderFactRow(fact, index) {
         row.style.backgroundColor = '#f0f9f0';
     }
     
+    row.appendChild(factNumberCell);
     row.appendChild(sourceTextCell);
     row.appendChild(extractedFactCell);
     row.appendChild(categoryCell);
@@ -458,16 +554,8 @@ function renderFactRow(fact, index) {
 }
 
 function getSourceIcon(source) {
-    const icons = {
-        'fnol': '📋',
-        'claimant': '👤',
-        'other_driver': '🚗',
-        'police': '👮',
-        'repair_estimate': '🔧',
-        'policy': '🛡️',
-        'unknown': '❓'
-    };
-    return icons[source] || '❓';
+    // Return empty string for minimalist design
+    return '';
 }
 
 function toggleSourceText(index) {
@@ -531,14 +619,69 @@ function filterFacts() {
     renderFactTable(filteredFacts);
 }
 
-function displayConflicts(conflicts) {
-    if (!conflicts || conflicts.length === 0) {
-        conflictsSection.style.display = 'none';
+function displayAcceptedDecisions() {
+    if (!currentFactsData || !currentFactsData.acceptedVersions || !currentFactsData.conflicts) {
         return;
     }
     
-    conflictsSection.style.display = 'block';
-    conflictsContent.innerHTML = '';
+    const tableBody = document.getElementById('acceptedDecisionsTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    Object.keys(currentFactsData.acceptedVersions).forEach(conflictIndex => {
+        const conflict = currentFactsData.conflicts[parseInt(conflictIndex)];
+        const accepted = currentFactsData.acceptedVersions[conflictIndex];
+        
+        if (conflict && accepted) {
+            const row = document.createElement('tr');
+            row.className = 'accepted-decision-row';
+            
+            // Conflict Description
+            const conflictCell = document.createElement('td');
+            conflictCell.textContent = conflict.fact_description || 'Conflict';
+            
+            // Accepted Value
+            const acceptedCell = document.createElement('td');
+            acceptedCell.textContent = accepted.value || '';
+            
+            // Resolved status
+            const resolvedCell = document.createElement('td');
+            const resolvedBadge = document.createElement('span');
+            resolvedBadge.className = 'resolved-badge';
+            resolvedBadge.textContent = 'Resolved';
+            resolvedBadge.style.background = '#4CAF50';
+            resolvedBadge.style.color = 'white';
+            resolvedBadge.style.padding = '4px 12px';
+            resolvedBadge.style.borderRadius = '12px';
+            resolvedBadge.style.fontSize = '0.85em';
+            resolvedBadge.style.fontWeight = '600';
+            resolvedBadge.title = `Resolved: ${new Date(accepted.timestamp).toLocaleString()}`;
+            resolvedCell.appendChild(resolvedBadge);
+            
+            row.appendChild(conflictCell);
+            row.appendChild(acceptedCell);
+            row.appendChild(resolvedCell);
+            
+            tableBody.appendChild(row);
+        }
+    });
+}
+
+function displayConflicts(conflicts) {
+    if (!conflicts || conflicts.length === 0) {
+        if (conflictsPanel) {
+            conflictsPanel.style.display = 'none';
+        }
+        return;
+    }
+    
+    if (conflictsPanel) {
+        conflictsPanel.style.display = 'block';
+    }
+    if (conflictsContent) {
+        conflictsContent.innerHTML = '';
+    }
     
     conflicts.forEach((conflict, index) => {
         const conflictDiv = document.createElement('div');
@@ -558,14 +701,14 @@ function displayConflicts(conflicts) {
                 const snippets = detail.source_snippets || [];
                 const isRecommended = value === recommendedVersion;
                 
-                return `
+                        return `
                     <div class="value-variant ${isRecommended ? 'recommended' : ''}" data-value="${escapeHtml(value)}" data-conflict-index="${index}" data-variant-index="${detailIndex}">
                         <div class="variant-header">
                             <strong>${escapeHtml(value)}</strong>
-                            ${isRecommended ? '<span class="recommended-badge">✓ Recommended</span>' : ''}
+                            ${isRecommended ? '<span class="recommended-badge">Recommended</span>' : ''}
                         </div>
                         <div class="variant-sources">
-                            <strong>Sources:</strong> ${sources.map(s => `<span class="source-badge source-${s}">${getSourceIcon(s)} ${s.replace('_', ' ')}</span>`).join(', ')}
+                            <strong>Sources:</strong> ${sources.map(s => `<span class="source-badge source-${s}">${s.replace('_', ' ')}</span>`).join(', ')}
                         </div>
                         ${snippets.length > 0 ? `
                             <div class="variant-snippets">
@@ -576,7 +719,7 @@ function displayConflicts(conflicts) {
                             </div>
                         ` : ''}
                         <button class="accept-button" onclick="acceptConflictVersion(${index}, ${detailIndex}, '${escapeHtml(value).replace(/'/g, "\\'")}')">
-                            ✓ Accept This Version
+                            Accept This Version
                         </button>
                     </div>
                 `;
@@ -590,7 +733,7 @@ function displayConflicts(conflicts) {
                         ${conflict.conflicting_values.map((v, vIndex) => `
                             <li>
                                 ${escapeHtml(v)}
-                                ${v === recommendedVersion ? ' <span class="recommended-badge">✓ Recommended</span>' : ''}
+                                ${v === recommendedVersion ? ' <span class="recommended-badge">Recommended</span>' : ''}
                                 <button class="accept-button-small" onclick="acceptConflictVersion(${index}, ${vIndex}, '${escapeHtml(v).replace(/'/g, "\\'")}')">
                                     Accept
                                 </button>
@@ -608,12 +751,12 @@ function displayConflicts(conflicts) {
             </div>
             <div class="conflict-details">
                 <div class="conflict-sources">
-                    <strong>Sources:</strong> ${conflict.sources.map(s => `<span class="source-badge source-${s}">${getSourceIcon(s)} ${s.replace('_', ' ')}</span>`).join(', ')}
+                    <strong>Sources:</strong> ${conflict.sources.map(s => `<span class="source-badge source-${s}">${s.replace('_', ' ')}</span>`).join(', ')}
                 </div>
                 ${recommendedVersion && evidence ? `
                     <div class="conflict-recommendation">
                         <div class="recommendation-header">
-                            <strong>🤖 AI Recommendation:</strong>
+                            <strong>AI Recommendation:</strong>
                         </div>
                         <div class="recommended-value">
                             <strong>Recommended Version:</strong> <span class="highlight">${escapeHtml(recommendedVersion)}</span>
@@ -768,7 +911,7 @@ function acceptConflictVersion(conflictIndex, variantIndex, acceptedValue) {
         if (variantDiv) {
             const acceptedIndicator = document.createElement('div');
             acceptedIndicator.className = 'accepted-indicator';
-            acceptedIndicator.innerHTML = '<span class="accepted-badge">✓ Accepted</span>';
+            acceptedIndicator.innerHTML = '<span class="accepted-badge">Accepted</span>';
             variantDiv.appendChild(acceptedIndicator);
         }
         
@@ -777,6 +920,16 @@ function acceptConflictVersion(conflictIndex, variantIndex, acceptedValue) {
             btn.disabled = true;
             btn.style.opacity = '0.5';
         });
+    }
+    
+    // Check if all conflicts are resolved
+    const allResolved = currentFactsData.conflicts && currentFactsData.conflicts.every((c, idx) => 
+        currentFactsData.acceptedVersions && currentFactsData.acceptedVersions[idx]
+    );
+    
+    if (allResolved) {
+        // Switch to resolved layout
+        displayFactMatrix(currentFactsData);
     }
     
     showSuccess(`Accepted version: "${acceptedValue}" - Fact matrix updated.`);
@@ -949,73 +1102,6 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-function generateSummary() {
-    // Check if there are any uploaded files
-    const uploadedCount = Object.keys(uploadedFiles).length;
-    if (uploadedCount === 0) {
-        showError('Please upload at least one file before generating a summary.');
-        return;
-    }
-    
-    // Show loading state
-    loading.style.display = 'block';
-    error.style.display = 'none';
-    
-    // Prepare files data to send
-    const filesData = Object.values(uploadedFiles);
-    
-    // Send to backend
-    fetch('/generate-summary', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ files: filesData })
-    })
-    .then(response => response.json())
-    .then(data => {
-        loading.style.display = 'none';
-        
-        if (data.error) {
-            showError(data.error);
-        } else if (data.summary) {
-            // Switch to Summary tab and display summary
-            switchTab('summary');
-            displaySummary(data.summary);
-        } else {
-            showError('No summary received from server.');
-        }
-    })
-    .catch(err => {
-        loading.style.display = 'none';
-        showError('Failed to generate summary. Please try again.');
-        console.error('Error:', err);
-    });
-}
-
-function displaySummary(summaryText) {
-    // Format and display summary
-    let formattedSummary = escapeHtml(summaryText);
-    
-    // Convert numbered lists (1. 2. 3. etc.)
-    formattedSummary = formattedSummary.replace(/(\d+)\.\s+([^\n]+)/g, '<div class="summary-list-item"><strong>$1.</strong> $2</div>');
-    
-    // Convert bullet points
-    formattedSummary = formattedSummary.replace(/^[-•]\s+([^\n]+)/gm, '<div class="summary-list-item">• $1</div>');
-    
-    // Convert line breaks to HTML
-    formattedSummary = formattedSummary.replace(/\n\n+/g, '</p><p>');
-    formattedSummary = formattedSummary.replace(/\n/g, '<br>');
-    
-    // Wrap in paragraphs
-    formattedSummary = '<p>' + formattedSummary + '</p>';
-    
-    // Clean up empty paragraphs
-    formattedSummary = formattedSummary.replace(/<p>\s*<\/p>/g, '');
-    formattedSummary = formattedSummary.replace(/<p><br><\/p>/g, '');
-    
-    summaryContent.innerHTML = formattedSummary;
-}
 
 function analyzeLiabilitySignals() {
     // Check if fact matrix exists
@@ -1024,8 +1110,11 @@ function analyzeLiabilitySignals() {
         return;
     }
     
-    // Show loading state
-    loading.style.display = 'block';
+    // Switch to Liability Signals tab
+    switchTab('liability-signals');
+    
+    // Show loading state in Liability Signals tab
+    showTabLoading('liabilitySignals', 'Analyzing liability signals...');
     error.style.display = 'none';
     
     // Prepare facts data to send
@@ -1041,13 +1130,16 @@ function analyzeLiabilitySignals() {
     })
     .then(response => response.json())
     .then(data => {
-        loading.style.display = 'none';
+        hideTabLoading('liabilitySignals');
         
         if (data.error) {
             showError(data.error);
         } else if (data.signals) {
             // Store signals data
             currentLiabilitySignalsData = data;
+            // Mark Step 1 liability signals as complete
+            step1Completion.liabilitySignals = true;
+            updateStep2Access();
             // Display liability signals
             displayLiabilitySignals(data);
         } else {
@@ -1055,7 +1147,7 @@ function analyzeLiabilitySignals() {
         }
     })
     .catch(err => {
-        loading.style.display = 'none';
+        hideTabLoading('liabilitySignals');
         showError('Failed to analyze liability signals. Please try again.');
         console.error('Error:', err);
     });
@@ -1143,9 +1235,9 @@ function renderLiabilitySignalRow(signal, index) {
     const discrepanciesCell = document.createElement('td');
     const discrepancies = signal.discrepancies || '';
     if (discrepancies) {
-        discrepanciesCell.innerHTML = `<span class="discrepancy-flag">⚠️ ${escapeHtml(discrepancies)}</span>`;
+        discrepanciesCell.innerHTML = `<span class="discrepancy-flag">${escapeHtml(discrepancies)}</span>`;
     } else {
-        discrepanciesCell.innerHTML = '<span class="no-discrepancy">✓ None</span>';
+        discrepanciesCell.innerHTML = '<span class="no-discrepancy">None</span>';
     }
     
     row.appendChild(signalTypeCell);
@@ -1186,8 +1278,11 @@ function checkEvidenceCompleteness() {
         return;
     }
     
-    // Show loading state
-    loading.style.display = 'block';
+    // Switch to Evidence Completeness tab
+    switchTab('evidence-completeness');
+    
+    // Show loading state in Evidence Completeness tab
+    showTabLoading('evidenceCompleteness', 'Checking evidence completeness...');
     error.style.display = 'none';
     
     // Prepare facts data to send
@@ -1203,11 +1298,14 @@ function checkEvidenceCompleteness() {
     })
     .then(response => response.json())
     .then(data => {
-        loading.style.display = 'none';
+        hideTabLoading('evidenceCompleteness');
         
         if (data.error) {
             showError(data.error);
         } else if (data.checks || data.missing_evidence) {
+            // Mark Step 1 evidence completeness as complete
+            step1Completion.evidenceComplete = true;
+            updateStep2Access();
             // Display evidence completeness results
             displayEvidenceCompleteness(data);
         } else {
@@ -1215,7 +1313,7 @@ function checkEvidenceCompleteness() {
         }
     })
     .catch(err => {
-        loading.style.display = 'none';
+        hideTabLoading('evidenceCompleteness');
         showError('Failed to check evidence completeness. Please try again.');
         console.error('Error:', err);
     });
@@ -1334,208 +1432,6 @@ function renderMissingEvidence(missingEvidence) {
         
         missingEvidenceList.appendChild(evidenceItem);
     });
-}
-
-function analyzeCoverageImpact() {
-    // Check if fact matrix exists
-    if (!currentFactsData || !currentFactsData.facts || currentFactsData.facts.length === 0) {
-        showError('Please extract facts first before analyzing coverage impact.');
-        return;
-    }
-    
-    // Show loading state
-    loading.style.display = 'block';
-    error.style.display = 'none';
-    
-    // Prepare facts and files data to send
-    const factsData = currentFactsData.facts;
-    const filesData = Object.values(uploadedFiles);
-    
-    // Send to backend
-    fetch('/analyze-coverage-impact', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ facts: factsData, files: filesData })
-    })
-    .then(response => response.json())
-    .then(data => {
-        loading.style.display = 'none';
-        
-        if (data.error) {
-            showError(data.error);
-        } else if (data.coverage_impacts) {
-            // Display coverage impact results
-            displayCoverageImpact(data);
-        } else {
-            showError('No coverage impacts received from server.');
-        }
-    })
-    .catch(err => {
-        loading.style.display = 'none';
-        showError('Failed to analyze coverage impact. Please try again.');
-        console.error('Error:', err);
-    });
-}
-
-function displayCoverageImpact(coverageData) {
-    // Switch to Coverage Impact tab
-    switchTab('coverage-impact');
-    
-    // Render coverage impacts table
-    renderCoverageImpactTable(coverageData.coverage_impacts);
-    
-    // Scroll to top of tab
-    document.getElementById('coverageImpactTab').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function renderCoverageImpactTable(coverageImpacts) {
-    const tableBody = document.getElementById('coverageImpactTableBody');
-    tableBody.innerHTML = '';
-    
-    if (!coverageImpacts || coverageImpacts.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 20px;">No coverage impacts identified.</td></tr>';
-        return;
-    }
-    
-    coverageImpacts.forEach((impact, index) => {
-        const row = renderCoverageImpactRow(impact, index);
-        tableBody.appendChild(row);
-    });
-}
-
-function renderCoverageImpactRow(impact, index) {
-    const row = document.createElement('tr');
-    row.dataset.index = index;
-    
-    // Triggering Fact (truncated with expand)
-    const triggeringFactCell = document.createElement('td');
-    const triggeringFact = impact.triggering_fact || '';
-    const truncatedFact = triggeringFact.length > 150 ? triggeringFact.substring(0, 150) + '...' : triggeringFact;
-    triggeringFactCell.innerHTML = `
-        <div class="triggering-fact-container">
-            <span class="triggering-fact-short">${escapeHtml(truncatedFact)}</span>
-            ${triggeringFact.length > 150 ? `<button class="expand-text-btn" onclick="toggleTriggeringFact(${index})">Show more</button>` : ''}
-            <span class="triggering-fact-full" style="display: none;">${escapeHtml(triggeringFact)}</span>
-        </div>
-    `;
-    
-    // Source (with badge)
-    const sourceCell = document.createElement('td');
-    const source = impact.source || 'unknown';
-    const sourceIcon = getSourceIcon(source);
-    sourceCell.innerHTML = `<span class="source-badge source-${source}">${sourceIcon} ${source.replace('_', ' ')}</span>`;
-    
-    // Policy Clause (truncated with expand)
-    const policyClauseCell = document.createElement('td');
-    const policyClause = impact.policy_clause || 'Policy document not provided';
-    const truncatedClause = policyClause.length > 150 ? policyClause.substring(0, 150) + '...' : policyClause;
-    policyClauseCell.innerHTML = `
-        <div class="policy-clause-container">
-            <span class="policy-clause-short">${escapeHtml(truncatedClause)}</span>
-            ${policyClause.length > 150 ? `<button class="expand-text-btn" onclick="togglePolicyClause(${index})">Show more</button>` : ''}
-            <span class="policy-clause-full" style="display: none;">${escapeHtml(policyClause)}</span>
-        </div>
-    `;
-    
-    // Risk Level (with color-coded badge)
-    const riskLevelCell = document.createElement('td');
-    const riskLevel = impact.risk_level || 'low';
-    const riskClass = `risk-${riskLevel}`;
-    const riskIcon = riskLevel === 'high' ? '🔴' : riskLevel === 'medium' ? '🟡' : '🟢';
-    riskLevelCell.innerHTML = `<span class="risk-badge ${riskClass}">${riskIcon} ${riskLevel.toUpperCase()}</span>`;
-    
-    // Coverage Exclusion Type (with badge)
-    const exclusionTypeCell = document.createElement('td');
-    const exclusionType = impact.coverage_exclusion_type || 'other';
-    const exclusionTypeFormatted = exclusionType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    exclusionTypeCell.innerHTML = `<span class="exclusion-type-badge">${escapeHtml(exclusionTypeFormatted)}</span>`;
-    
-    // Explanation (truncated with expand)
-    const explanationCell = document.createElement('td');
-    const explanation = impact.explanation || '';
-    const truncatedExplanation = explanation.length > 150 ? explanation.substring(0, 150) + '...' : explanation;
-    explanationCell.innerHTML = `
-        <div class="explanation-container">
-            <span class="explanation-short">${escapeHtml(truncatedExplanation)}</span>
-            ${explanation.length > 150 ? `<button class="expand-text-btn" onclick="toggleExplanation(${index})">Show more</button>` : ''}
-            <span class="explanation-full" style="display: none;">${escapeHtml(explanation)}</span>
-            ${impact.evidence ? `<div class="evidence-text" style="margin-top: 5px; font-size: 0.9em; color: #666;"><strong>Evidence:</strong> ${escapeHtml(impact.evidence)}</div>` : ''}
-        </div>
-    `;
-    
-    row.appendChild(triggeringFactCell);
-    row.appendChild(sourceCell);
-    row.appendChild(policyClauseCell);
-    row.appendChild(riskLevelCell);
-    row.appendChild(exclusionTypeCell);
-    row.appendChild(explanationCell);
-    
-    return row;
-}
-
-function toggleTriggeringFact(index) {
-    const row = document.querySelector(`#coverageImpactTableBody tr[data-index="${index}"]`);
-    if (!row) return;
-    
-    const shortText = row.querySelector('.triggering-fact-short');
-    const fullText = row.querySelector('.triggering-fact-full');
-    const button = row.querySelector('.triggering-fact-container .expand-text-btn');
-    
-    if (fullText && button) {
-        if (fullText.style.display === 'none') {
-            shortText.style.display = 'none';
-            fullText.style.display = 'inline';
-            button.textContent = 'Show less';
-        } else {
-            shortText.style.display = 'inline';
-            fullText.style.display = 'none';
-            button.textContent = 'Show more';
-        }
-    }
-}
-
-function togglePolicyClause(index) {
-    const row = document.querySelector(`#coverageImpactTableBody tr[data-index="${index}"]`);
-    if (!row) return;
-    
-    const shortText = row.querySelector('.policy-clause-short');
-    const fullText = row.querySelector('.policy-clause-full');
-    const button = row.querySelector('.policy-clause-container .expand-text-btn');
-    
-    if (fullText && button) {
-        if (fullText.style.display === 'none') {
-            shortText.style.display = 'none';
-            fullText.style.display = 'inline';
-            button.textContent = 'Show less';
-        } else {
-            shortText.style.display = 'inline';
-            fullText.style.display = 'none';
-            button.textContent = 'Show more';
-        }
-    }
-}
-
-function toggleExplanation(index) {
-    const row = document.querySelector(`#coverageImpactTableBody tr[data-index="${index}"]`);
-    if (!row) return;
-    
-    const shortText = row.querySelector('.explanation-short');
-    const fullText = row.querySelector('.explanation-full');
-    const button = row.querySelector('.explanation-container .expand-text-btn');
-    
-    if (fullText && button) {
-        if (fullText.style.display === 'none') {
-            shortText.style.display = 'none';
-            fullText.style.display = 'inline';
-            button.textContent = 'Show less';
-        } else {
-            shortText.style.display = 'inline';
-            fullText.style.display = 'none';
-            button.textContent = 'Show more';
-        }
-    }
 }
 
 function getLiabilityRecommendation() {
@@ -1704,45 +1600,106 @@ function updateLiabilityRecommendation() {
 }
 
 function generateTimeline() {
+    // Check if Step 1 is complete
+    if (!checkStep1Completion()) {
+        showError('Please complete Step 1 (Fact Analysis) before generating timeline.');
+        return;
+    }
+    
     // Check if fact matrix exists
     if (!currentFactsData || !currentFactsData.facts || currentFactsData.facts.length === 0) {
         showError('Please extract facts first before generating timeline.');
         return;
     }
     
-    // Show loading state
-    loading.style.display = 'block';
+    // Check if liability signals exist
+    if (!currentLiabilitySignalsData || !currentLiabilitySignalsData.signals || currentLiabilitySignalsData.signals.length === 0) {
+        showError('Please analyze liability signals first before generating timeline.');
+        return;
+    }
+    
+    // Switch to Timeline tab
+    switchTab('timeline');
+    
+    // Show loading state in Timeline tab
+    showTabLoading('timeline', 'Generating timeline and recommendations...');
     error.style.display = 'none';
     
-    // Prepare facts data to send
+    // Prepare data to send
     const factsData = currentFactsData.facts;
+    const signalsData = currentLiabilitySignalsData.signals;
+    const filesData = Object.values(uploadedFiles);
     
-    // Send to backend
-    fetch('/generate-timeline', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ facts: factsData })
-    })
-    .then(response => response.json())
-    .then(data => {
-        loading.style.display = 'none';
+    // Trigger parallel API calls for Step 2
+    Promise.all([
+        // Timeline
+        fetch('/generate-timeline', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ facts: factsData })
+        }).then(r => r.json()),
         
-        if (data.error) {
-            showError(data.error);
-        } else if (data.timeline) {
-            // Store timeline data
-            currentTimelineData = data;
-            // Display timeline
-            displayTimeline(data);
-        } else {
-            showError('No timeline received from server.');
+        // Liability Recommendation
+        fetch('/get-liability-recommendation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ facts: factsData, signals: signalsData })
+        }).then(r => r.json()),
+        
+        // Claim Rationale
+        fetch('/generate-claim-rationale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ facts: factsData, signals: signalsData, files: filesData })
+        }).then(r => r.json()),
+        
+        // Escalation Package
+        fetch('/generate-escalation-package', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ facts: factsData, signals: signalsData })
+        }).then(r => r.json())
+    ])
+    .then(([timelineData, recommendationData, rationaleData, escalationData]) => {
+        hideTabLoading('timeline');
+        
+        // Handle timeline
+        if (timelineData.error) {
+            showError('Timeline generation failed: ' + timelineData.error);
+        } else if (timelineData.timeline) {
+            currentTimelineData = timelineData;
+            displayTimeline(timelineData);
         }
+        
+        // Handle liability recommendation
+        if (recommendationData.error) {
+            console.error('Liability recommendation failed:', recommendationData.error);
+        } else if (recommendationData.claimant_liability_percent !== undefined) {
+            currentLiabilityRecommendationData = recommendationData;
+            displayLiabilityRecommendation(recommendationData);
+        }
+        
+        // Handle claim rationale
+        if (rationaleData.error) {
+            console.error('Claim rationale failed:', rationaleData.error);
+        } else if (rationaleData.rationale) {
+            currentClaimRationaleData = rationaleData;
+            displayClaimRationale(rationaleData.rationale);
+        }
+        
+        // Handle escalation package
+        if (escalationData.error) {
+            console.error('Escalation package failed:', escalationData.error);
+        } else if (escalationData.escalation_package) {
+            currentEscalationPackageData = escalationData;
+            displayEscalationPackage(escalationData.escalation_package);
+        }
+        
+        showSuccess('Timeline and recommendations generated successfully!');
     })
     .catch(err => {
-        loading.style.display = 'none';
-        showError('Failed to generate timeline. Please try again.');
+        hideTabLoading('timeline');
+        showError('Failed to generate timeline and recommendations. Please try again.');
         console.error('Error:', err);
     });
 }
@@ -2286,14 +2243,9 @@ window.filterFacts = filterFacts;
 window.toggleSourceText = toggleSourceText;
 window.exportFactsAsJSON = exportFactsAsJSON;
 window.switchTab = switchTab;
-window.generateSummary = generateSummary;
 window.analyzeLiabilitySignals = analyzeLiabilitySignals;
 window.toggleEvidenceText = toggleEvidenceText;
 window.checkEvidenceCompleteness = checkEvidenceCompleteness;
-window.analyzeCoverageImpact = analyzeCoverageImpact;
-window.toggleTriggeringFact = toggleTriggeringFact;
-window.togglePolicyClause = togglePolicyClause;
-window.toggleExplanation = toggleExplanation;
 window.getLiabilityRecommendation = getLiabilityRecommendation;
 window.updateLiabilityPercentages = updateLiabilityPercentages;
 window.updateLiabilityRecommendation = updateLiabilityRecommendation;
